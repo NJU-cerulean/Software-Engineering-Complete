@@ -27,7 +27,7 @@ public class OrderDAO {
             ps.setDouble(5, o.getDiscount());
             ps.setDouble(6, o.getPayByPlatform());
             ps.setString(7, o.getStatus().name());
-            ps.setString(8, String.valueOf(o.getCreateTime().getTime()));
+            ps.setString(8, Long.toString(o.getCreateTime().getTime()));
             ps.executeUpdate();
         }
     }
@@ -42,11 +42,17 @@ public class OrderDAO {
             ps.setString(1, userId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    Order o = new Order(rs.getString("id"), rs.getString("user_id"), rs.getString("merchant_id"), rs.getDouble("total_amount"), rs.getDouble("discount"), rs.getDouble("pay_by_platform"));
-                    res.add(o);
+                    res.add(mapRow(rs));
                 }
             }
         }
         return res;
+    }
+
+    /**
+     * 将当前 ResultSet 行映射为 Order 对象，避免重复构造样板。
+     */
+    private Order mapRow(ResultSet rs) throws SQLException {
+        return new Order(rs.getString("id"), rs.getString("user_id"), rs.getString("merchant_id"), rs.getDouble("total_amount"), rs.getDouble("discount"), rs.getDouble("pay_by_platform"));
     }
 }

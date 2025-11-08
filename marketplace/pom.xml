@@ -6,10 +6,9 @@
     <artifactId>marketplace</artifactId>
     <version>1.0-SNAPSHOT</version>
     <properties>
-        <maven.compiler.source>21</maven.compiler.source>
-        <maven.compiler.target>21</maven.compiler.target>
-        <!-- Use release to ensure consistent target platform when supported -->
+        <!-- 使用统一的 release 标志以确保 target 平台一致，同时指定源码编码 -->
         <maven.compiler.release>21</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
     <dependencies>
         <dependency>

@@ -25,14 +25,23 @@ public class AuthService {
     public boolean registerUser(User u, String password) throws SQLException {
         // 若手机号在黑名单中，则禁止注册
         if (adminService.isBanned(u.getPhone())) return false;
+        // 检查手机号是否已被注册，若已注册则提示并返回 false
         try (Connection c = DBUtil.getConnection();
-             PreparedStatement ps = c.prepareStatement("INSERT OR IGNORE INTO users (id, username, phone, password, vip, login_count) VALUES (?, ?, ?, ?, ?, ?)") ) {
+             PreparedStatement check = c.prepareStatement("SELECT phone FROM users WHERE phone = ?")) {
+            check.setString(1, u.getPhone());
+            try (ResultSet rs = check.executeQuery()) {
+                if (rs.next()) return false; // 已存在
+            }
+        }
+        try (Connection c = DBUtil.getConnection();
+             PreparedStatement ps = c.prepareStatement("INSERT INTO users (id, username, phone, password, vip, login_count, total_spent) VALUES (?, ?, ?, ?, ?, ?, ?)") ) {
             ps.setString(1, u.getUserId());
             ps.setString(2, u.getUsername());
             ps.setString(3, u.getPhone());
             ps.setString(4, password);
             ps.setString(5, "NORMAL");
             ps.setInt(6, 0);
+            ps.setDouble(7, 0.0);
             int affected = ps.executeUpdate();
             return affected > 0;
         }
@@ -49,8 +58,10 @@ public class AuthService {
             ps.setString(1, phone);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    String p = rs.getString(1);
-                    return p != null && p.equals(password);
+                    String stored = rs.getString(1);
+                    if (stored == null) return false;
+                    // 简单明文比对（按用户要求，禁用哈希）
+                    if (stored.equals(password)) return true;
                 }
             }
         }
@@ -64,7 +75,8 @@ public class AuthService {
         // 若手机号在黑名单中，则禁止注册
         if (adminService.isBanned(m.getPhone())) return false;
         // persist merchant with password
-        com.marketplace.dao.MerchantDAO dao = new com.marketplace.dao.MerchantDAO();
+        MerchantDAO dao = new MerchantDAO();
+        // NOTE: 使用明文存储密码（不安全，仅按用户要求保留简单检测）
         dao.save(m, password);
         return true;
     }
@@ -75,9 +87,11 @@ public class AuthService {
     public boolean loginMerchant(String phone, String password) throws SQLException {
         // 禁止被封禁的商家登录
         if (adminService.isBanned(phone)) return false;
-        com.marketplace.dao.MerchantDAO dao = new com.marketplace.dao.MerchantDAO();
-        com.marketplace.models.Merchant m = dao.findByPhone(phone);
-        return m != null && m.login(password);
+        MerchantDAO dao = new MerchantDAO();
+        String stored = dao.getPasswordByPhone(phone);
+        if (stored == null) return false;
+        // 明文比较
+        return stored.equals(password);
     }
 
     /**

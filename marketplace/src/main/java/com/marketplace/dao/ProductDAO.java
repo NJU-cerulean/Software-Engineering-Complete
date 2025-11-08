@@ -42,8 +42,7 @@ public class ProductDAO {
              PreparedStatement ps = c.prepareStatement("SELECT id, title, description, price, stock, status, merchant_id, merchant_phone FROM products WHERE status = 'PUBLISHED'")) {
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    Product p = new Product(rs.getString("id"), rs.getString("title"), rs.getString("description"), rs.getDouble("price"), rs.getInt("stock"), Enums.ProductStatus.PUBLISHED, rs.getString("merchant_id"), rs.getString("merchant_phone"));
-                    res.add(p);
+                    res.add(mapRow(rs));
                 }
             }
         }
@@ -77,15 +76,15 @@ public class ProductDAO {
     /**
      * 根据 id 查询商品
      */
+    /**
+     * 根据商品 id 查询商品，若不存在返回 null
+     */
     public Product findById(String id) throws SQLException {
         try (Connection c = DBUtil.getConnection();
              PreparedStatement ps = c.prepareStatement("SELECT id, title, description, price, stock, status, merchant_id, merchant_phone FROM products WHERE id = ?")) {
             ps.setString(1, id);
             try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    Enums.ProductStatus status = Enums.ProductStatus.valueOf(rs.getString("status"));
-                    return new Product(rs.getString("id"), rs.getString("title"), rs.getString("description"), rs.getDouble("price"), rs.getInt("stock"), status, rs.getString("merchant_id"), rs.getString("merchant_phone"));
-                }
+                if (rs.next()) return mapRow(rs);
             }
         }
         return null;
@@ -94,18 +93,23 @@ public class ProductDAO {
     /**
      * 列出某商家的所有商品
      */
-    public java.util.List<Product> listByMerchant(String merchantId) throws SQLException {
-        java.util.List<Product> res = new java.util.ArrayList<>();
+    public List<Product> listByMerchant(String merchantId) throws SQLException {
+        List<Product> res = new ArrayList<>();
         try (Connection c = DBUtil.getConnection();
              PreparedStatement ps = c.prepareStatement("SELECT id, title, description, price, stock, status, merchant_id, merchant_phone FROM products WHERE merchant_id = ?")) {
             ps.setString(1, merchantId);
             try (ResultSet rs = ps.executeQuery()) {
-                while (rs.next()) {
-                    Enums.ProductStatus status = Enums.ProductStatus.valueOf(rs.getString("status"));
-                    res.add(new Product(rs.getString("id"), rs.getString("title"), rs.getString("description"), rs.getDouble("price"), rs.getInt("stock"), status, rs.getString("merchant_id"), rs.getString("merchant_phone")));
-                }
+                while (rs.next()) res.add(mapRow(rs));
             }
         }
         return res;
+    }
+
+    /**
+     * 将当前行映射为 Product 对象（减少重复代码）
+     */
+    private Product mapRow(ResultSet rs) throws SQLException {
+        Enums.ProductStatus status = Enums.ProductStatus.valueOf(rs.getString("status"));
+        return new Product(rs.getString("id"), rs.getString("title"), rs.getString("description"), rs.getDouble("price"), rs.getInt("stock"), status, rs.getString("merchant_id"), rs.getString("merchant_phone"));
     }
 }

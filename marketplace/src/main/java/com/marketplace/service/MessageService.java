@@ -4,6 +4,7 @@ import com.marketplace.db.DBUtil;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.util.UUID;
@@ -38,20 +39,121 @@ public class MessageService {
      * 查询接收者的消息列表（按时间）
      */
     public java.util.List<String> getMessagesFor(String receiverId) throws SQLException {
+        return getMessagesForInternal(receiverId, true);
+    }
+
+    /**
+     * 查询发送者发出的消息列表（按时间倒序）
+     */
+    public java.util.List<String> getSentMessages(String senderId) throws SQLException {
         java.util.List<String> res = new java.util.ArrayList<>();
-        try (Connection c = DBUtil.getConnection();
-             PreparedStatement ps = c.prepareStatement("SELECT sender_id, content, timestamp FROM messages WHERE receiver_id = ? ORDER BY timestamp DESC")) {
-            ps.setString(1, receiverId);
-            try (java.sql.ResultSet rs = ps.executeQuery()) {
+        String sql = "SELECT id, receiver_id, content, timestamp FROM messages WHERE sender_id = ? ORDER BY timestamp DESC";
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, senderId);
+            try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    String content = rs.getString(2);
-                    // 在展示消息前做敏感信息掩码（例如手机号、身份证等简单数字掩码）
-                    content = maskSensitiveNumbers(content);
-                    res.add("from:" + rs.getString(1) + " - " + content);
+                    String id = rs.getString("id");
+                    String receiver = rs.getString("receiver_id");
+                    String content = maskSensitiveNumbers(rs.getString("content"));
+                    res.add(String.format("%s | to:%s - %s", id, receiver, content));
                 }
             }
+            return res;
         }
-        return res;
+    }
+
+    // 内部实现：允许在初次失败时自动尝试补充 is_read 列（兼容老数据库）
+    private java.util.List<String> getMessagesForInternal(String receiverId, boolean allowRepair) throws SQLException {
+        java.util.List<String> res = new java.util.ArrayList<>();
+        String sql = "SELECT id, sender_id, content, timestamp, is_read FROM messages WHERE receiver_id = ? ORDER BY timestamp DESC";
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, receiverId);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String id = rs.getString("id");
+                    String sender = rs.getString("sender_id");
+                    String content = maskSensitiveNumbers(rs.getString("content"));
+                    String prefix = rs.getInt("is_read") == 0 ? "[未读] " : "";
+                    res.add(String.format("%s | %sfrom:%s - %s", id, prefix, sender, content));
+                }
+            }
+            return res;
+        } catch (SQLException e) {
+            // 如果是旧数据库缺少 is_read 列，则尝试修复并重试一次
+            if (allowRepair && e.getMessage() != null && e.getMessage().contains("no such column") && e.getMessage().contains("is_read")) {
+                try (Connection c2 = DBUtil.getConnection(); java.sql.Statement st = c2.createStatement()) {
+                    st.executeUpdate("ALTER TABLE messages ADD COLUMN is_read INTEGER DEFAULT 0");
+                } catch (SQLException ignore) { /* 若无法补救，则继续抛原异常 */ }
+                return getMessagesForInternal(receiverId, false);
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 获取某用户的未读消息数量
+     */
+    public int getUnreadCount(String receiverId) throws SQLException {
+        String sql = "SELECT COUNT(1) FROM messages WHERE receiver_id = ? AND is_read = 0";
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, receiverId);
+            try (ResultSet rs = ps.executeQuery()) { if (rs.next()) return rs.getInt(1); }
+            return 0;
+        } catch (SQLException e) {
+            if (e.getMessage() != null && e.getMessage().contains("no such column") && e.getMessage().contains("is_read")) {
+                // 尝试修复表结构然后重试一次
+                try (Connection c2 = DBUtil.getConnection(); java.sql.Statement st = c2.createStatement()) {
+                    st.executeUpdate("ALTER TABLE messages ADD COLUMN is_read INTEGER DEFAULT 0");
+                } catch (SQLException ignore) { }
+                try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+                    ps.setString(1, receiverId);
+                    try (ResultSet rs = ps.executeQuery()) { if (rs.next()) return rs.getInt(1); }
+                    return 0;
+                }
+            }
+            throw e;
+        }
+    }
+
+    /**
+     * 获取两者之间的完整会话（按时间升序），并将当前接收者的未读消息标为已读。
+     */
+    public java.util.List<String> getConversation(String me, String other) throws SQLException {
+        java.util.List<String> res = new java.util.ArrayList<>();
+        String sql = "SELECT id, sender_id, receiver_id, content, timestamp FROM messages WHERE (sender_id = ? AND receiver_id = ?) OR (sender_id = ? AND receiver_id = ?) ORDER BY timestamp ASC";
+        try (Connection c = DBUtil.getConnection(); PreparedStatement ps = c.prepareStatement(sql)) {
+            ps.setString(1, me);
+            ps.setString(2, other);
+            ps.setString(3, other);
+            ps.setString(4, me);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    String id = rs.getString("id");
+                    String sender = rs.getString("sender_id");
+                    String receiver = rs.getString("receiver_id");
+                    String content = maskSensitiveNumbers(rs.getString("content"));
+                    res.add(sender + " -> " + receiver + ": " + content);
+                    // 若当前用户为接收者且消息为未读（若列不存在则无法判断），则尝试标记为已读
+                    if (receiver.equals(me)) {
+                        try (PreparedStatement up = c.prepareStatement("UPDATE messages SET is_read = 1 WHERE id = ?")) {
+                            up.setString(1, id);
+                            up.executeUpdate();
+                        } catch (SQLException ignore) { /* 若没有 is_read 列，则忽略 */ }
+                    }
+                }
+            }
+            return res;
+        } catch (SQLException e) {
+            // 若由于缺失 is_read 导致错误，则尝试补救并重试一次（兼容老数据库）
+            if (e.getMessage() != null && e.getMessage().contains("no such column") && e.getMessage().contains("is_read")) {
+                try (Connection c2 = DBUtil.getConnection(); java.sql.Statement st = c2.createStatement()) {
+                    st.executeUpdate("ALTER TABLE messages ADD COLUMN is_read INTEGER DEFAULT 0");
+                } catch (SQLException ignore) { }
+                // 重试一次
+                return getConversation(me, other);
+            }
+            throw e;
+        }
     }
 
     /**
