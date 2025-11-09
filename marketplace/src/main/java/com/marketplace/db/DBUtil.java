@@ -72,17 +72,21 @@ public class DBUtil {
      */
     public static void clearAllData() throws SQLException {
         try (Connection conn = getConnection(); Statement st = conn.createStatement()) {
-            // 注意顺序以满足外键依赖（本示例无外键约束），使用 DELETE 保留表结构
+            // 注意顺序以减少依赖冲突（本示例无外键约束）。使用 DELETE 保留表结构但清空所有数据。
             st.executeUpdate("DELETE FROM messages");
             st.executeUpdate("DELETE FROM orders");
             st.executeUpdate("DELETE FROM products");
             st.executeUpdate("DELETE FROM promotions");
+            // coupons 和 user_coupons 同步清理
+            st.executeUpdate("DELETE FROM user_coupons");
+            st.executeUpdate("DELETE FROM coupons");
             st.executeUpdate("DELETE FROM banned");
             st.executeUpdate("DELETE FROM banned_products");
             st.executeUpdate("DELETE FROM complaints");
             st.executeUpdate("DELETE FROM users");
             st.executeUpdate("DELETE FROM merchants");
-            // 保留 admins 表，管理员账号仍然可登录
+            // 同时清空管理员账号（如需保留请勿执行此行）
+            st.executeUpdate("DELETE FROM admins");
         }
     }
 

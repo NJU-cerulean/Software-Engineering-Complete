@@ -99,11 +99,6 @@ public class UserDAO {
      * 更新用户密码（用于将明文迁移为哈希）
      */
     public void updatePasswordByPhone(String phone, String hashed) throws SQLException {
-        try (Connection c = DBUtil.getConnection();
-             PreparedStatement ps = c.prepareStatement("UPDATE users SET password = ? WHERE phone = ?")) {
-            ps.setString(1, hashed);
-            ps.setString(2, phone);
-            ps.executeUpdate();
-        }
+        //TODO
     }
 }

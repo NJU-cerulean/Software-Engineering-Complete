@@ -35,8 +35,12 @@ public class AppGUI {
     private JPanel productGrid;
     private boolean darkMode = false;
     private String currentUserPhone = null;
+    private String currentMerchantPhone = null;
     private JPanel recommendPanel;
     private String currentMerchantId = null;
+    private JLabel userInfoLabel;
+    private JTextField searchField;
+    private JButton btnSearch;
     // 主题色：RGB(85,0,75)
     private final Color THEME = new Color(85, 0, 75);
 
@@ -56,8 +60,20 @@ public class AppGUI {
     recommendPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
     recommendPanel.setBorder(new EmptyBorder(8,12,8,12));
 
+    // 将搜索框移动到推荐区域的右侧，便于在浏览示例时直接搜索
+    JPanel recommendWithSearch = new JPanel(new BorderLayout());
+    recommendWithSearch.add(recommendPanel, BorderLayout.WEST);
+    // create search controls (fields are class members so we can wire actions elsewhere)
+    searchField = new JTextField(24);
+    btnSearch = new JButton("搜索");
+    styleButton(btnSearch);
+    JPanel searchPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+    searchPanel.add(searchField);
+    searchPanel.add(btnSearch);
+    recommendWithSearch.add(searchPanel, BorderLayout.EAST);
+
     JPanel centerContainer = new JPanel(new BorderLayout());
-    centerContainer.add(recommendPanel, BorderLayout.NORTH);
+    centerContainer.add(recommendWithSearch, BorderLayout.NORTH);
     centerContainer.add(centerScroll, BorderLayout.CENTER);
 
     frame.add(topBar, BorderLayout.NORTH);
@@ -80,46 +96,39 @@ public class AppGUI {
         brand.setFont(new Font("SansSerif", Font.BOLD, 18));
     brand.setForeground(Color.WHITE);
 
-        // center: search
-        JPanel center = new JPanel(new FlowLayout(FlowLayout.LEFT, 8, 0));
-        JTextField searchField = new JTextField(30);
-        JButton btnSearch = new JButton("搜索");
-        center.add(searchField);
-        center.add(btnSearch);
+    // search moved to recommend area; top bar keeps brand + controls on right
 
-        // right: user/admin buttons and theme toggle
+    // right: user buttons and theme toggle
         JPanel right = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         JButton btnUser = new JButton("用户 登录/注册");
         JButton btnMerchant = new JButton("商家 登录/注册");
-        JButton btnAdmin = new JButton("管理员 登录");
     JButton btnMessages = new JButton("消息");
     JButton btnOrders = new JButton("我的订单");
         JToggleButton themeToggle = new JToggleButton("深色模式");
 
-        right.add(btnUser);
-        right.add(btnMerchant);
-        right.add(btnAdmin);
+    userInfoLabel = new JLabel("");
+    userInfoLabel.setForeground(Color.WHITE);
+
+    right.add(btnUser);
+    right.add(btnMerchant);
+    right.add(userInfoLabel);
     right.add(btnMessages);
         right.add(btnOrders);
         right.add(themeToggle);
 
         // style buttons with theme
-        styleButton(btnSearch);
-        styleButton(btnUser);
-        styleButton(btnMerchant);
-        styleButton(btnAdmin);
+    styleButton(btnUser);
+    styleButton(btnMerchant);
         styleButton(btnMessages);
     styleButton(btnOrders);
         styleButton(themeToggle);
 
-        top.add(brand, BorderLayout.WEST);
-        top.add(center, BorderLayout.CENTER);
+    top.add(brand, BorderLayout.WEST);
         top.add(right, BorderLayout.EAST);
 
         // actions
-        btnUser.addActionListener(e -> showUserDialog());
-        btnMerchant.addActionListener(e -> showMerchantDialog());
-        btnAdmin.addActionListener(e -> showAdminDialog());
+    btnUser.addActionListener(e -> showUserDialog());
+    btnMerchant.addActionListener(e -> showMerchantDialog());
     btnMessages.addActionListener(e -> showMessagesDialog());
     btnOrders.addActionListener(e -> showOrdersDialog());
         // 我的优惠券入口
@@ -130,10 +139,13 @@ public class AppGUI {
     btnMessages.addHierarchyListener(e -> updateUnreadBadge(btnMessages));
     btnOrders.addHierarchyListener(e -> { /* placeholder if future badge needed */ });
 
-        btnSearch.addActionListener(e -> {
-            String kw = searchField.getText();
-            refreshProducts(kw);
-        });
+        // wire search action (if search controls created in createAndShow)
+        if (btnSearch != null) {
+            btnSearch.addActionListener(e -> {
+                String kw = searchField.getText();
+                refreshProducts(kw);
+            });
+        }
 
         themeToggle.addActionListener(e -> {
             darkMode = themeToggle.isSelected();
@@ -184,9 +196,11 @@ public class AppGUI {
     }
 
     private void updateUnreadBadgeForCurrentUser() {
-        if (currentUserPhone == null) return;
+        // Show unread badge for the active actor (user or merchant)
+        String phone = currentUserPhone != null ? currentUserPhone : currentMerchantPhone;
+        if (phone == null) return;
         try {
-            int c = messageService.getUnreadCount(currentUserPhone);
+            int c = messageService.getUnreadCount(phone);
             // find btnMessages by walking components (simple approach)
             for (Component comp : ((Container)frame.getContentPane().getComponent(0)).getComponents()) {
                 if (comp instanceof JButton) {
@@ -198,9 +212,10 @@ public class AppGUI {
     }
 
     private void updateUnreadBadge(JButton btn) {
-        if (currentUserPhone == null) { btn.setText("消息"); return; }
+        String phone = currentUserPhone != null ? currentUserPhone : currentMerchantPhone;
+        if (phone == null) { btn.setText("消息"); return; }
         try {
-            int c = messageService.getUnreadCount(currentUserPhone);
+            int c = messageService.getUnreadCount(phone);
             btn.setText("消息 (" + c + ")");
         } catch (SQLException ignored) { }
     }
@@ -268,6 +283,18 @@ public class AppGUI {
         styleButton(btnClaim);
         styleButton(btnBuy);
 
+        // Enforce: only logged-in users can perform purchase-related actions
+        boolean loggedIn = currentUserPhone != null;
+        btnBuy.setEnabled(loggedIn);
+        btnClaim.setEnabled(loggedIn);
+        if (!loggedIn) {
+            btnBuy.setToolTipText("请先登录后购买");
+            btnClaim.setToolTipText("请先登录以领取优惠券");
+        } else {
+            btnBuy.setToolTipText(null);
+            btnClaim.setToolTipText(null);
+        }
+
         info.add(title);
         info.add(price);
         info.add(stock);
@@ -283,8 +310,18 @@ public class AppGUI {
             if (content != null && !content.isBlank()) {
                 try {
                     // 发送站内消息给商家 phone (实际消息中不可包含明文联系方式)
-                    messageService.sendMessagePublic("系统用户", p.getMerchantPhone(), content);
-                    JOptionPane.showMessageDialog(frame, "消息已发送，卖家可在站内回复。联系方式不会被公开显示。");
+                    // 若用户已登录则使用用户手机号作为 senderId，让商家能看到是哪位顾客发来的消息并可回复；
+                    // 若未登录则提示输入手机号作为发送者标识（或取消）
+                    String senderId = currentUserPhone;
+                    if (senderId == null) {
+                        senderId = JOptionPane.showInputDialog(frame, "您未登录，请输入用于发送的手机号（将作为发送者标识）：");
+                        if (senderId == null || senderId.isBlank()) {
+                            // 用户取消或未输入，不发送
+                            return;
+                        }
+                    }
+                    messageService.sendMessagePublic(senderId, p.getMerchantPhone(), content);
+                    JOptionPane.showMessageDialog(frame, "消息已发送，卖家可在站内回复。请勿在消息中直接填写敏感联系方式。");
                 } catch (SQLException ex) {
                     showError(ex);
                 }
@@ -356,7 +393,10 @@ public class AppGUI {
                     // 显示 VIP 等级
                     try {
                         java.util.Map<String, Object> info = userDAO.getVipAndTotalByPhone(currentUserPhone);
-                        if (info != null) JOptionPane.showMessageDialog(frame, "当前VIP: " + info.get("vip") + "，总消费: " + info.get("total_spent"));
+                        if (info != null) {
+                            JOptionPane.showMessageDialog(frame, "当前VIP: " + info.get("vip") + "，总消费: " + info.get("total_spent"));
+                            userInfoLabel.setText("用户: " + currentUserPhone + " | VIP: " + info.get("vip"));
+                        }
                     } catch (Exception ignored) {}
                     refreshProducts();
                 } else {
@@ -372,7 +412,10 @@ public class AppGUI {
                     JOptionPane.showMessageDialog(frame, "登录成功: " + phone);
                     try {
                         java.util.Map<String, Object> info = userDAO.getVipAndTotalByPhone(currentUserPhone);
-                        if (info != null) JOptionPane.showMessageDialog(frame, "当前VIP: " + info.get("vip") + "，总消费: " + info.get("total_spent"));
+                        if (info != null) {
+                            JOptionPane.showMessageDialog(frame, "当前VIP: " + info.get("vip") + "，总消费: " + info.get("total_spent"));
+                            userInfoLabel.setText("用户: " + currentUserPhone + " | VIP: " + info.get("vip"));
+                        }
                     } catch (Exception ignored) {}
                     refreshProducts();
                 } else JOptionPane.showMessageDialog(frame, "登录失败");
@@ -381,7 +424,9 @@ public class AppGUI {
     }
 
     private void showMessagesDialog() {
-        if (currentUserPhone == null) { JOptionPane.showMessageDialog(frame, "请先登录以查看消息"); return; }
+        // Allow either logged-in user or logged-in merchant to view messages
+        String activePhone = currentUserPhone != null ? currentUserPhone : currentMerchantPhone;
+        if (activePhone == null) { JOptionPane.showMessageDialog(frame, "请先登录以查看消息"); return; }
         try {
             JDialog d = new JDialog(frame, "消息中心", true);
             d.setSize(700, 500);
@@ -389,7 +434,7 @@ public class AppGUI {
 
             // 收件箱（按时间倒序）
             DefaultListModel<String> inboxModel = new DefaultListModel<>();
-            java.util.List<String> inbox = messageService.getMessagesFor(currentUserPhone);
+            java.util.List<String> inbox = messageService.getMessagesFor(activePhone);
             if (inbox != null) inbox.forEach(inboxModel::addElement);
             JList<String> inboxList = new JList<>(inboxModel);
             JScrollPane inboxSp = new JScrollPane(inboxList);
@@ -402,8 +447,8 @@ public class AppGUI {
                     String[] parts = sel.split("from:");
                     if (parts.length < 2) return;
                     String sender = parts[1].split(" - ")[0].trim();
-                    showConversationDialog(currentUserPhone, sender);
-                    java.util.List<String> refreshed = messageService.getMessagesFor(currentUserPhone);
+                    showConversationDialog(activePhone, sender);
+                    java.util.List<String> refreshed = messageService.getMessagesFor(activePhone);
                     inboxModel.clear(); if (refreshed!=null) refreshed.forEach(inboxModel::addElement);
                     updateUnreadBadgeForCurrentUser();
                 } catch (SQLException ex) { showError(ex); }
@@ -413,7 +458,7 @@ public class AppGUI {
 
             // 已发送
             DefaultListModel<String> sentModel = new DefaultListModel<>();
-            java.util.List<String> sent = messageService.getSentMessages(currentUserPhone);
+            java.util.List<String> sent = messageService.getSentMessages(activePhone);
             if (sent != null) sent.forEach(sentModel::addElement);
             JList<String> sentList = new JList<>(sentModel);
             JScrollPane sentSp = new JScrollPane(sentList);
@@ -427,9 +472,9 @@ public class AppGUI {
                     String[] parts = sel.split("to:");
                     if (parts.length < 2) return;
                     String receiver = parts[1].split(" - ")[0].trim();
-                    showConversationDialog(currentUserPhone, receiver);
+                    showConversationDialog(activePhone, receiver);
                     // 刷新 sent list
-                    java.util.List<String> refreshed = messageService.getSentMessages(currentUserPhone);
+                    java.util.List<String> refreshed = messageService.getSentMessages(activePhone);
                     sentModel.clear(); if (refreshed!=null) refreshed.forEach(sentModel::addElement);
                 } catch (SQLException ex) { showError(ex); }
             });
@@ -492,11 +537,13 @@ public class AppGUI {
         JTextField untilField = new JTextField(10);
         JTextField qtyField = new JTextField(6);
         JButton btnCreate = new JButton("创建优惠券");
+    JButton btnAddProduct = new JButton("添加商品");
         top.add(new JLabel("优惠码:")); top.add(codeField);
         top.add(new JLabel("折扣:")); top.add(discountField);
         top.add(new JLabel("有效期:")); top.add(untilField);
         top.add(new JLabel("总量:")); top.add(qtyField);
         top.add(btnCreate);
+    top.add(btnAddProduct);
 
         DefaultListModel<String> lm = new DefaultListModel<>();
         JList<String> list = new JList<>(lm);
@@ -523,6 +570,32 @@ public class AppGUI {
                 java.util.List<String> coupons = productService.listCouponsForMerchant(currentMerchantId);
                 if (coupons != null) coupons.forEach(lm::addElement);
             } catch (NumberFormatException nfe) { JOptionPane.showMessageDialog(d, "折扣或数量格式错误"); }
+            catch (SQLException ex) { showError(ex); }
+        });
+
+        btnAddProduct.addActionListener(e -> {
+            // only allow when merchant context exists
+            if (currentMerchantId == null || currentMerchantPhone == null) { JOptionPane.showMessageDialog(frame, "商家未登录或未找到商家信息，无法添加商品"); return; }
+            JPanel inputs = new JPanel(new GridLayout(0,2));
+            JTextField titleF = new JTextField(20);
+            JTextField descF = new JTextField(20);
+            JTextField priceF = new JTextField(8);
+            JTextField stockF = new JTextField(6);
+            inputs.add(new JLabel("商品标题:")); inputs.add(titleF);
+            inputs.add(new JLabel("描述:")); inputs.add(descF);
+            inputs.add(new JLabel("价格:")); inputs.add(priceF);
+            inputs.add(new JLabel("库存:")); inputs.add(stockF);
+            int sel = JOptionPane.showConfirmDialog(d, inputs, "添加商品", JOptionPane.OK_CANCEL_OPTION);
+            if (sel != JOptionPane.OK_OPTION) return;
+            try {
+                String title = titleF.getText();
+                String desc = descF.getText();
+                double price = Double.parseDouble(priceF.getText());
+                int stock = Integer.parseInt(stockF.getText());
+                productService.publishProduct(title, desc, price, stock, currentMerchantId, currentMerchantPhone);
+                JOptionPane.showMessageDialog(d, "商品已发布");
+                refreshProducts();
+            } catch (NumberFormatException nfe) { JOptionPane.showMessageDialog(d, "价格或库存格式错误"); }
             catch (SQLException ex) { showError(ex); }
         });
 
@@ -605,9 +678,16 @@ public class AppGUI {
                     // 设置当前商家上下文并打开商家面板
                     try {
                         com.marketplace.models.Merchant m = merchantDAO.findByPhone(phone);
-                        if (m != null) currentMerchantId = m.getMerchantId();
+                        if (m != null) {
+                            currentMerchantId = m.getMerchantId();
+                            currentMerchantPhone = phone;
+                            userInfoLabel.setText("商家: " + m.getShopName() + " | " + currentMerchantPhone);
+                        } else {
+                            currentMerchantPhone = phone;
+                        }
                     } catch (SQLException ignored) {}
                     JOptionPane.showMessageDialog(frame, "登录成功，打开商家面板");
+                    refreshProducts();
                     showMerchantPanel();
                 } else {
                     JOptionPane.showMessageDialog(frame, "登录失败");

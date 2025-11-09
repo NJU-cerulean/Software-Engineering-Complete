@@ -61,6 +61,7 @@ public class Main {
                         case "5":
                             adminLogin(sc);
                             break;
+                        
                         case "0":
                             System.out.println("退出");
                             return;
@@ -256,26 +257,61 @@ public class Main {
                         System.out.println(p.getProductId() + " | " + p.getTitle() + " | " + p.getPrice() + " | 库存:" + p.getStock() + " | 联系方式: 使用站内私信或购买后交换");
                     break;
                 case "3":
-                    List<String> msgs = messageService.getMessagesFor(currentUserPhone);
-                    if (msgs.isEmpty()) System.out.println("无消息"); else msgs.forEach(System.out::println);
-                    // 支持查看会话并在会话中举报对方
-                    System.out.print("输入要查看会话的对方ID(手机号/商家ID)，或回车返回: ");
-                    String other = sc.nextLine().trim();
-                    if (!other.isEmpty()) {
-                        java.util.List<String> conv = messageService.getConversation(currentUserPhone, other);
-                        conv.forEach(System.out::println);
-                        System.out.print("在此会话中举报对方？(y/N): ");
-                        String rep = sc.nextLine().trim();
-                        if (rep.equalsIgnoreCase("y")) {
-                            System.out.println("请选择举报类型：1 服务 2 质量 3 欺诈");
-                            String t = sc.nextLine().trim();
-                            Enums.ComplaintType type = Enums.ComplaintType.SERVICE;
-                            if ("2".equals(t)) type = Enums.ComplaintType.QUALITY;
-                            else if ("3".equals(t)) type = Enums.ComplaintType.FRAUD;
-                            boolean ok = complaintService.submitComplaint(currentUserPhone, other, type);
-                            System.out.println(ok ? "举报提交成功，管理员将会处理" : "举报提交失败，请稍后重试");
-                        }
+                    // 列出与当前用户相关的所有消息（包括收到和已发送），选择后可回复或继续发送给对方
+                    java.util.List<String> inboxList = messageService.getMessagesFor(currentUserPhone);
+                    java.util.List<String> sentList = messageService.getSentMessages(currentUserPhone);
+                    java.util.List<String> combined = new java.util.ArrayList<>();
+                    if (inboxList != null) {
+                        for (String s : inboxList) combined.add("[收] " + s);
                     }
+                    if (sentList != null) {
+                        for (String s : sentList) combined.add("[发] " + s);
+                    }
+                    if (combined.isEmpty()) {
+                        System.out.println("暂无相关消息");
+                        break;
+                    }
+                    System.out.println("相关消息列表：");
+                    for (int i = 0; i < combined.size(); i++) System.out.println((i+1) + ". " + combined.get(i));
+                    System.out.print("输入消息序号以回复/继续发送，输入 n 发送新消息，或回车返回: ");
+                    String choice2 = sc.nextLine().trim();
+                    if (choice2.isEmpty()) break;
+                    if (choice2.equalsIgnoreCase("n")) {
+                        System.out.print("目标ID(手机号/商家ID): ");
+                        String to = sc.nextLine().trim();
+                        if (to.isEmpty()) { System.out.println("已取消"); break; }
+                        System.out.print("内容: ");
+                        String cmsg = sc.nextLine();
+                        messageService.sendMessagePublic(currentUserPhone, to, cmsg);
+                        System.out.println("消息已发送");
+                        break;
+                    }
+                    try {
+                        int selectedIndex = Integer.parseInt(choice2) - 1;
+                        if (selectedIndex < 0 || selectedIndex >= combined.size()) { System.out.println("序号无效"); break; }
+                        String entry = combined.get(selectedIndex);
+                        // 解析对方 ID（支持 from: 和 to: 两种格式）
+                        String other = null;
+                        if (entry.contains("from:")) {
+                            String[] p = entry.split("from:");
+                            if (p.length > 1) other = p[1].split(" - ")[0].trim();
+                        } else if (entry.contains("to:")) {
+                            String[] p = entry.split("to:");
+                            if (p.length > 1) other = p[1].split(" - ")[0].trim();
+                        }
+                        if (other == null) { System.out.println("无法解析对方 ID，操作取消"); break; }
+                        System.out.println("已选对象: " + other);
+                        System.out.println("操作：1 回复/继续发送 其它 返回");
+                        String op2 = sc.nextLine().trim();
+                        if (op2.equals("1")) {
+                            System.out.print("输入要发送的内容: ");
+                            String body = sc.nextLine();
+                            if (!body.isEmpty()) {
+                                messageService.sendMessagePublic(currentUserPhone, other, body);
+                                System.out.println("消息已发送");
+                            } else System.out.println("已取消发送（内容为空）");
+                        }
+                    } catch (NumberFormatException nfe) { System.out.println("无效输入"); }
                     break;
                 case "4":
                     // 切换为商家：若当前手机号已有商家账户则直接登录，否则创建一个简单商家并登录
@@ -354,8 +390,53 @@ public class Main {
                     System.out.println("已创建优惠券: " + code);
                     break;
                 case "3":
-                    List<String> msgs = messageService.getMessagesFor(currentMerchant.getPhone());
-                    if (msgs.isEmpty()) System.out.println("无新消息"); else msgs.forEach(System.out::println);
+                    // 商家：列出与商家相关的所有消息（收到与已发），选择后可回复或继续发送给对方
+                    java.util.List<String> inboxListM = messageService.getMessagesFor(currentMerchant.getPhone());
+                    java.util.List<String> sentListM = messageService.getSentMessages(currentMerchant.getPhone());
+                    java.util.List<String> combinedM = new java.util.ArrayList<>();
+                    if (inboxListM != null) for (String s : inboxListM) combinedM.add("[收] " + s);
+                    if (sentListM != null) for (String s : sentListM) combinedM.add("[发] " + s);
+                    if (combinedM.isEmpty()) { System.out.println("暂无相关消息"); break; }
+                    System.out.println("相关消息列表：");
+                    for (int i = 0; i < combinedM.size(); i++) System.out.println((i+1) + ". " + combinedM.get(i));
+                    System.out.print("输入消息序号以回复/继续发送，输入 n 发送新消息，或回车返回: ");
+                    String mchChoice2 = sc.nextLine().trim();
+                    if (mchChoice2.isEmpty()) break;
+                    if (mchChoice2.equalsIgnoreCase("n")) {
+                        System.out.print("目标ID(手机号/商家ID): ");
+                        String to = sc.nextLine().trim();
+                        if (to.isEmpty()) { System.out.println("已取消"); break; }
+                        System.out.print("内容: ");
+                        String content = sc.nextLine();
+                        messageService.sendMessagePublic(currentMerchant.getPhone(), to, content);
+                        System.out.println("消息已发送");
+                        break;
+                    }
+                    try {
+                        int selectedIndexM = Integer.parseInt(mchChoice2) - 1;
+                        if (selectedIndexM < 0 || selectedIndexM >= combinedM.size()) { System.out.println("序号无效"); break; }
+                        String entry = combinedM.get(selectedIndexM);
+                        String other = null;
+                        if (entry.contains("from:")) {
+                            String[] p = entry.split("from:");
+                            if (p.length > 1) other = p[1].split(" - ")[0].trim();
+                        } else if (entry.contains("to:")) {
+                            String[] p = entry.split("to:");
+                            if (p.length > 1) other = p[1].split(" - ")[0].trim();
+                        }
+                        if (other == null) { System.out.println("无法解析对方 ID，操作取消"); break; }
+                        System.out.println("已选对象: " + other);
+                        System.out.println("操作：1 回复/继续发送 其它 返回");
+                        String op = sc.nextLine().trim();
+                        if (op.equals("1")) {
+                            System.out.print("输入要发送的内容: ");
+                            String body = sc.nextLine();
+                            if (!body.isEmpty()) {
+                                messageService.sendMessagePublic(currentMerchant.getPhone(), other, body);
+                                System.out.println("消息已发送");
+                            } else System.out.println("已取消发送（内容为空）");
+                        }
+                    } catch (NumberFormatException nfe) { System.out.println("无效输入"); }
                     break;
                 case "4":
                     System.out.print("目标用户手机号: ");
@@ -374,6 +455,8 @@ public class Main {
             }
         }
     }
+
+    
 
     // ---------- 管理员菜单 (登录后) ----------
     private static void adminMenu(Scanner sc) throws SQLException {
